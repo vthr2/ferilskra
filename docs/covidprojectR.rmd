@@ -1,0 +1,640 @@
+
+
+---
+title: "COVID-19 Project"
+author: '190030150'
+date: "14/05/2020"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    number_sections: true
+    fig_caption: yes
+    keep_tex: yes
+header-includes:
+  \usepackage{float}
+  \floatplacement{figure}{H}
+  \usepackage[utf8]{inputenc}
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,fig.pos ='h')
+```
+
+```{r, include = FALSE}
+library(tidyverse)
+library(mgcv) #Regression splines and gams
+library(stats) #glms
+library(geepack)#GEEs
+library(car)#vif
+library(grid)
+library(gridExtra)
+library(lawstat)#runs.test
+library(MuMIn)  #dredge
+library(glmnet) #Ridge,LASSO
+library(countrycode) #To shorten country names to label plots better
+library(kableExtra) #For tables
+library(lme4)   #MIxed effects models
+library(sjPlot) #Plot mixed effects models
+library(xtable) #Tables for linear model results
+library(float)  #For forcing figure and table location in pdf
+library(plotmo) # For plotting lasso plots
+```
+# Introduction
+In this analysis, spread of Covid-19 will be analysed, we are particularly interested in the evolution of number of confirmed cases and fatalities by country. Two datasets will be analysed. Using the first dataset fatality rate will be analysed and factors affecting fatality rate will be identified. The factors used are number of confirmed cases, population density, median age, urban population, number of hospital beds, health expenditure, GDP and death rate contributed to lung diseases. Using the second dataset we analyse number of confirmed cases per country.
+
+# Part 1
+```{r, include = FALSE}
+#Read in data
+covidData1 <- read_csv("CovidCases.csv")
+```
+
+```{r, include = FALSE}
+summary(covidData1)
+```
+
+```{r, include = FALSE}
+#refactor country
+covidData1$Country <- as.factor(covidData1$Country)
+```
+
+The first model that was fitted is a generalised linear model with a log link function. It assumes the response has a quasipoisson distribution which is often used for count data. For this model we assume independence since fatality rate of one country should not have a big effect on the fatality rate of other countries. The independence assumption will later be checked. Since we are modelling fatality rate we include confirmed cases as an offset. Quasipoisson is a right fit since the dispersion parameter is 123 which is significantly different from zero. Quasipoisson models have a different mean-variance relationship than poisson models. For quasipoisson models mean equals the dispersion parameter multiplied by the variance.
+
+
+```{r, include = FALSE}
+#Fit model and get summary
+glmModel1 <- stats::glm(Deaths ~. - Country - Confirmed,
+family=quasipoisson, offset = log(Confirmed), data=covidData1)
+(modelSummaryGLM <-summary(glmModel1))
+```
+
+```{r}
+#Create table of summary
+xtable(modelSummaryGLM) %>%
+kable(caption = "Results from quasipoisson model")%>%
+  kable_styling(latex_options = "HOLD_position") %>%
+  footnote(alphabet = c("Null Deviance = 36778,139 DF ", "Residual Deviance= 17033, 131 DF", "Dispersion parameter= 123"))
+```
+
+From table 1 it can be seen that the significant predictors are median age, urban population and number of hospital beds. For each one unit increase in percentage of urban population case fatality rate increases by a multiplicative effect of e^0.018 or 1.02. For each one unit increase in median age case fatality rate increases by a multiplicative effect of 1.09.
+For each one unit increase in number of beds per 1000 people the fatality rate increases by a factor of 0.87 which is a decrease by 13 percent. The deviance explained which measures how closely our models prediction are to the observed outcome is 46.2 % of the saturated model. That indicates our model fits the data fairly well. The overdispersion parameter is 123. It defines our standard errors and mean-variance relationship. 
+
+
+
+Next up a model is fitted only with countries with 10 or more deaths. These countries have gotten further in the virus process than other countries which makes the data more reliable. The fatality rate can fluctuate a lot in the first days of the virus in each country. The more data we have the more accurate the fatality rate gets. Another thing is that it takes time for people to die from the disease. First the cases appears and then some time later people can die from the disease. We might include countries with a lot of cases but no deaths, but the deaths will happen eventually. By including countries with more than 10 deaths we know that the virus has been affecting the country for long enough for people to die. 
+
+
+
+```{r,include = FALSE}
+#filter data for 10 or more deaths
+covidSubset <- filter(covidData1, Deaths > 9)
+```
+
+
+
+```{r, include = FALSE}
+#Fit model
+glmModel2 <- stats::glm(Deaths ~. - Country - Confirmed,
+family=quasipoisson, offset = log(Confirmed), data=covidSubset)
+(glm2 <- summary(glmModel2))
+```
+Table 2 shows the results after using a subset of the dataset. The significant parameters at the 95% level are number of hospital beds, median age and population density. The effect of bed increases to a multiplicative effect of 0.84. Population density has a multiplicative effect of 1.002 and median age 1.007. Dispersion parameter increases to 198 and deviance explained reduces to 38.2 %.
+
+```{r}
+xtable(glm2) %>%
+kable(caption = "Results from quasipoisson model on subsetted data")%>%
+  kable_styling(latex_options = "HOLD_position") %>%
+  footnote(alphabet = c("Disperion Parameter = 191.50 ", "Null Deviance = 35272,74 DF", "Residual Deviance = 13463, 66 DF"))
+
+```
+
+Now the assumptions of the model are checked. For a reliable model the model has to meet its assumptions. The assumptions to check are collinearity, linearity of covariates, independence of response and the mean-variance relationship. First we check if the variables are too similar to each other by assessing collinearity. Looking at table 3 we see that two variables are highly collinear with higher VIF than 10. They are  health expenditure and GDP. Including those results in increased variance because the parameters defining the plane are uncertain. This can be dealt with removing these variables, combining them in someway or fitting penalized regression models.
+
+```{r,include = FALSE}
+#Get variance inflation factors
+vifSummary <- car::vif(glmModel2)
+```
+
+```{r}
+#Table
+kable(vifSummary, col.names = "Variance inflation factor", caption = "Variance inflation factor results") %>% kable_styling( latex_options = "HOLD_position")
+
+```
+Next up we check the linearity assumption by fitting pearson residual plots to each variable.  Looking at the plots in figure 1 there seems to be some nonlinearity in all the plots however it can be hard to see. By using Tukey's test for nonaddivity seen in table 4 has the null hypothesis that the coefficient of the quadratic term is zero. The quadratic term is the blue line in the plot. All covariates have very low p values indicating a failure to reject the null hypothesis. This means that the quadratic term could be something other than zero indicating a nonlinear fit for all covariates. The assumption of linearity can not be fulfilled.
+
+```{r,include = FALSE}
+#Get residual plots
+residualOutput <-car::residualPlots(glmModel2,type = "pearson", quadratic = TRUE, plot = FALSE)
+```
+
+```{r}
+#Table for tukey test
+residualOutput <-as.data.frame(residualOutput)
+kable(residualOutput, caption =  "Tukey's test results") %>% kable_styling( latex_options = "HOLD_position")
+```
+
+```{r,fig.cap = "Residual plots for glm model"}
+car::residualPlots(glmModel2,type = "pearson", quadratic = TRUE, tests = FALSE)
+```
+
+
+Next assumption is the assumption of independence. To check that we do a runs test and plot the autocorrelation function. The autocorrelation plot seen in figure 2 shows dont show any highly correlated residuals. The runs test compares the number of observed runs with what is expected under independence. The resulting test statistic is a standard normal distribution so values more extreme than the absolute value of 2 indicate autocorrelation. In our case the test statistic is -1.01 as seen in table 5 so there does not seem to be correlated residuals. The assumption of independence is fulfilled.
+
+```{r,include = FALSE}
+#runs test
+ (runsTest <- lawstat::runs.test(residuals(glmModel2)))
+
+```
+
+```{r}
+#table
+runsTable<-rbind("Standardized Runs Statistic" = runsTest$statistic, "p-value"= runsTest$p.value)
+kable(runsTable, caption = "Runs Test results") %>% kable_styling( latex_options = "HOLD_position")
+```
+
+
+
+```{r, fig.cap = "ACF plot for glm Model"}
+#acf plot
+acf(residuals(glmModel2))
+```
+
+```{r,include = FALSE}
+#Prepare for residual plots, code used from weekly/practicals
+xbin <- cut(x=fitted(glmModel2), breaks=quantile(fitted(glmModel2), probs=c(seq(0, 1, length=50)))) # Compute mean of xbin 
+xmean <- tapply(fitted(glmModel2), xbin, mean) # Compute var of residuals within xbin 
+resvar <- tapply(residuals(glmModel2), xbin, var) # Plot 
+dispersionPar <- summary(glmModel2)$dispersion
+```
+
+
+Lastly we assess the mean-variance relationships by looking at the fitted values versus the residuals. A poisson model assumes that mean equals variance. The mean of a quasipoisson model equals variance multiplied by the dispersion parameter. By looking at the Pearson residuals we can analyse the mean-variance relationship, the Pearson residuals are standardised so they approximate a constant relationship. Looking at the pearson residual plot it is hard to tell if the relationship holds. Residual plots can be seen below. Not enough evidence to fulfill assumption according to Pearson residual plots but hard to tell.
+
+```{r, fig.cap = "Pearson and raw residuals of glm"}
+#Plot residuals
+par(mfrow = c(1,2))
+res1 <- plot(xmean, resvar*dispersionPar, xlab="Mean fitted values", ylab="Variance of raw residuals", pch=19)
+res2 <- plot(fitted(glmModel2), residuals(glmModel2, type="pearson"), 
+     pch=19, cex=0.5, ylab="Pearson residuals", xlab="Fitted values")
+```
+
+
+Using all-best subset selection the best models are identified using the QAIC to evaluate them which is a similar score as AIC which penalises for more parameters. The difference is that QAIC uses quasilikelihood rather than maximum likelihood. All Best-subset selction fits models with all possible combinations of covariates and calculates the QAIC score for each model. The lower the QAIC score the better the model fit. The top five models can be seen in the tables 6 and 7 below. The model with the lowest QAIC has all covariates except health expenditure. The next in line has all covariates except GDP. Third best has all covariates. Fourth best has all covariates except health expenditure  and fifth best exlcudes health expenditure and lung diseases. Since the weights for the model with the lowest QAIC score is highest and the QAIC is lowest that model is the one that returns the best fit.
+```{r, include = FALSE}
+#Prepare for dredge
+glmModel4 <- stats::glm(Deaths ~. - Country - Confirmed,
+family=poisson, offset = log(Confirmed), data=covidSubset)
+
+```
+
+```{r,include = FALSE}
+options(na.action = "na.fail")
+dredgedModel <- dredge(glmModel4, rank = QAIC, chat = dispersionPar)
+```
+
+```{r,include = FALSE}
+#Prepare for tables
+firstFive = dredgedModel[1:5]
+
+firstTable = firstFive[,1:7]
+secondTable = firstFive[,8:13]
+```
+
+
+```{r}
+kable(firstTable, caption="First part of result of all-possible best subset selction")  %>%kable_styling( latex_options = "HOLD_position")
+```
+```{r}
+kable(secondTable, caption="Second part of result of all-possible best subset selction")  %>%kable_styling( latex_options = "HOLD_position")
+```
+
+```{r,include = FALSE}
+#-1 to exclude intercept since it is included by default fit xmatrix to prepare for lasso
+xmatrix <- model.matrix(~scale(PopDensity)+scale(MedianAge)+scale(UrbanPop)+scale(Bed)+scale(Lung)+scale(HealthExp)+scale(GDP)-1,data=covidSubset)
+colnames(xmatrix) <- gsub("scale","",colnames(xmatrix))
+head(xmatrix)
+```
+Since the model has correlated covariates a LASSO model might be a better fit. LASSO models reduce the weights of covariates which are not important in prediction. LASSO model can reduce the coefficents of the covariates to zero which effectively removes them from the model performing model selection. Penalised regression like LASSO adds a penalty term to the log-likelihood function we try to maximise. The reason a poisson model is fitted instead of quasipoisson is that the coefficients of the covariates stay the same for poisson and quasipoisson models. The only difference is the size of the standard errors. Before fitting the model we standardise the predictors by centering them and scale them by their standard deviation. This is done since the shrinkage for the predictors will have different contributions to the penalty term if the covariates have different scales.
+```{r,include = FALSE}
+lassoModel <- glmnet::glmnet(xmatrix, covidSubset$Deaths, family="poisson", 
+                offset=log(covidSubset$Confirmed), alpha=1)
+```
+
+```{r,include = FALSE}
+#lasso cross validated with 10 folds
+cvLassoModel <- glmnet::cv.glmnet(xmatrix, covidSubset$Deaths, family="poisson",
+                     offset=log(covidSubset$Confirmed),
+                     alpha=1, nfolds=10)
+```
+
+```{r,include = FALSE}
+log(cvLassoModel$lambda.min)
+```
+
+
+```{r, fig.cap = "Results from Lasso Model"}
+#Plot cool plots for lasso use plot_glmnet which add labels.
+par(mfrow=c(1, 2))
+plot_glmnet(lassoModel)
+abline(v=log(cvLassoModel$lambda.min), lwd=4, lty=2)
+plot(cvLassoModel)
+abline(v=log(cvLassoModel$lambda.min), lwd=4, lty=2)
+```
+```{r,include = FALSE}
+(lassoRes <- coef(cvLassoModel, s="lambda.min"))
+```
+
+```{r,include = FALSE}
+#Hardcode table since no good package for lassa summary was found, it definetly exists though
+lassoTable <- data.frame("Variables"= c("Intercept","PopDensity","MedianAge","UrbanPop","Bed","Lung","HealthExp","GDP"), "Coefficients"=c(-3.05,0.29,0.54,0.18,-0.44,-0.17,-0.06,-0.14))
+```
+
+```{r,include = FALSE}
+#lambda min
+log(cvLassoModel$lambda.min)
+```
+
+```{r}
+kable(lassoTable, caption = "LASSO coefficients at lambda min") %>%kable_styling( latex_options = "HOLD_position") %>% footnote(alphabet = "Lambda min = 2.11")
+```
+
+
+Figure 3 shows the  log of the regularisation parameter which is called lambda that minimises the cross validation error as a dashed line. In the plot on the right hand side we see the evolution of the poisson deviance which is a goodness of fit measure. It starts decreasing until it hits the log lambda that minimises the cross validation error which is 2.11. The plot on the left shows how the coefficients of the covariates change by a change in the value of log lambda. The dashed line is again the log lambda that minimises the cross validation error. The best results using 10-fold cross validation returns a model where all covariates are kept in the model but most of them reduced by some amount. GDP seems to be the one affected the most with the greatest reduction, all of the others are quite close to the original estimate. In table 8 the coefficient estimates can be seen as well as the best log lambda.
+
+
+Now we fit penalised regression splines with a smooth term for each covariate. We fit one model with five dimensions and another with 10 dimensions. For the first model all smooth functions are justified except population density and urban populations since they are not significant at the 95% level.The second model has all smooth functions justified except urban population and lung diseases. The first model has a much lower generalised cross validation score and higher deviance explained which indicates a better fit. This can be seen in table 9 and 10.
+
+```{r,include = FALSE}
+#Fit prs with 10 dimensions
+PRS1 <- mgcv::gam(Deaths~s(PopDensity,k=10)+s(MedianAge,k=10)+s(UrbanPop,k=10)+s(Bed,k=10)+s(Lung,k=10)+s(HealthExp,k=10)+s(GDP,k=10), family = "quasipoisson", data = covidSubset, offset = log(Confirmed))
+(tenModel <- summary(PRS1))
+```
+
+```{r,include = FALSE}
+#Fit prs with 5 dimensions
+PRS2 <- mgcv::gam(Deaths~s(PopDensity,k=5)+s(MedianAge,k=5)+s(UrbanPop,k=5)+s(Bed,k=5)+s(Lung,k=5)+s(HealthExp,k=5)+s(GDP,k=5), family = "quasipoisson",data = covidSubset, offset = log(Confirmed))
+
+(fiveModel <- summary(PRS2))
+```
+
+
+```{r,include = FALSE}
+#xtable doesnt work with gams so do it manually
+tenPRS <- data.frame("Covariates" = c("s(popDensity)","s(MedianAge)","s(UrbanPop)","s(Bed)","s(Lung)","s(HealthExp)","s(GDP)"), "edf" = c(2.75,1.00,1.00,5.77,7.50,2.73,8.85), "p-value"=c(0.06,0.05,0.24,0.00,0.00,0.00,0.00))
+```
+
+
+```{r}
+kable(tenPRS, caption = "Results from PRS model with 10 dimensions")%>%
+  kable_styling(latex_options = "HOLD_position") %>%
+  footnote(alphabet = c("Deviance Explained = 96.2%", "GCV = 51.255"))
+```
+
+
+```{r,include = FALSE}
+#Hardcode for table, packages tried did not work
+fivePRS <- data.frame("Covariates" = c("s(popDensity)","s(MedianAge)","s(UrbanPop)","s(Bed)","s(Lung)","s(HealthExp)","s(GDP)"),"edf" = c(3.59,1.00,1.55,3.77,1.41,4.00,2.12), "p-value"=c(0.00,0.00,0.02,0.00,0.17,0.00,0.00))
+```
+
+```{r}
+kable(fivePRS, caption = "Results from PRS model with 5 dimensions")%>%
+  kable_styling(latex_options = "HOLD_position") %>%
+  footnote(alphabet = c("Deviance Explained = 88.6%", "GCV = 94.605"))
+```
+
+
+
+```{r, fig.cap = "Residuals for covariates with 10 dimensions"}
+par(mfrow = c(2,2))
+plot(PRS1, shade=T, residuals=T, ylim=c(-5,5), main = "10 dimensional PRS model residuals")
+```
+
+```{r, fig.cap = "Residuals of covariates with 5 dimensions"}
+par(mfrow = c(2,2))
+plot(PRS2, shade=T, residuals=T, ylim=c(-5,5),main ="Five dimensional PRS model residuals")
+```
+
+
+By looking at the residual plots of these models seen in the figures above it can be seen that the one with 10 dimensions fluctuates more and are more nonlinear. All covariates have similar directions in both models the main difference is that the first model fluctuates much more. The biggest difference can be seen in the residuals of lung diseases.
+
+# Part 2
+
+Now we move on to another dataset that includes the number of confirmed cases of each country. We start by reading in the data and cleaning it.
+
+
+```{r,include = FALSE}
+covidData2 <- read_csv("CovidConfirmedTime.csv")
+```
+
+
+
+```{r,include = FALSE}
+covidData2$Country <- as.factor(covidData2$Country)
+```
+
+```{r,include = FALSE}
+#Aggregate data by countries so we can make a bar chart by country and total cases in each country
+plotData <- aggregate(covidData2$Confirmed, by=list(Country=covidData2$Country), FUN=max) 
+```
+
+```{r,include = FALSE}
+#sort and clean data
+plotData$totalCase <- plotData$x
+plotData <- arrange(plotData,totalCase)
+```
+
+```{r,include = FALSE}
+#So plots dont get too crowded we split the dataset in two and make two seperate plots for the groups
+plotData1 <- filter(plotData, totalCase < 6075)
+plotData2 <- filter(plotData, totalCase > 6075 & totalCase < 21000)
+plotData3 <- filter(plotData, totalCase > 21000)
+
+```
+
+```{r,include = FALSE}
+#Do same for the other plot which will be a linechart showing evolution of cases by days per country
+plotDataDaily <- merge(covidData2,plotData)
+plotData4 <- filter(plotDataDaily, totalCase < 6075)
+plotData5 <- filter(plotDataDaily, totalCase > 6075 & totalCase < 21000)
+plotData6 <- filter(plotDataDaily, totalCase > 21000)
+
+```
+
+Before fitting models the dataset will be explored with plots. The first plot shown in the figures below show the evolution of confirmed cases of each country by day. It can be seen that most countries follow a similar trajectory. The US has the steepest curve. The bar charts in figure 4 show total cases by country, USA are far ahead but Spain, Italy ,France and Germany have many cases also.
+
+```{r,fig.cap = "Evolution of confirmed cases by country"}
+#Plot linechart of evolution of countries per day
+
+ggplot(plotData4, aes(x=Day, y=Confirmed, col=Country)) +
+  geom_line()+
+  geom_point() + scale_color_brewer(palette="Paired")+ ylab("Number of cases")
+
+ggplot(plotData5, aes(x=Day, y=Confirmed, col=Country)) +
+  geom_line()+
+  geom_point()+ scale_color_brewer(palette="Paired")+ ylab("Number of cases")
+
+ggplot(plotData6, aes(x=Day, y=Confirmed, col=Country)) +
+  geom_line()+
+  geom_point()+ scale_color_brewer(palette="Paired")+ ylab("Number of cases")
+
+
+```
+
+
+
+```{r, include = FALSE}
+#PLot bar charts of total cases per country have to abbreviate country names so they fit on chart using countrycode function in countrycode package, add abbreviated country names and rotate by 90 country to make plot clearer.
+
+
+p1<-ggplot(plotData1, aes(x=reorder(Country, totalCase), y=totalCase)) + 
+  geom_bar(stat="identity", fill = "green4") + scale_x_discrete(labels = countrycode(plotData1$Country,origin = 'country.name', destination = 'iso3c'))+xlab("Countries")+ ylab("Total Cases") +  theme(axis.text.x=element_text(angle=90,margin = margin(1, unit = "cm"),vjust =1))
+
+p2<-ggplot(plotData2, aes(x=reorder(Country, totalCase), y=totalCase)) + 
+  geom_bar(stat="identity",fill = "green4") + scale_x_discrete(labels = countrycode(plotData2$Country,origin = 'country.name', destination = 'iso3c'))+xlab("Countries")+ ylab("Total Cases") +  theme(axis.text.x=element_text(angle=90,margin = margin(1, unit = "cm"),vjust =1))
+
+p3<-ggplot(plotData3, aes(x=reorder(Country, totalCase), y=totalCase)) + 
+  geom_bar(stat="identity",fill = "green4") + scale_x_discrete(labels = countrycode(plotData3$Country,origin = 'country.name', destination = 'iso3c'))+xlab("Countries")+ ylab("Total Cases") +  theme(axis.text.x=element_text(angle=90,margin = margin(1, unit = "cm"),vjust =1))
+   
+
+```
+
+```{r, fig.cap = "Bar Charts for number of cases by country"}
+#Fit all of them together
+grid.arrange(p1,p2,p3, ncol=2)
+```
+
+
+By looking at the plot in figure 12 we can see that Germany has a faster growth rate than the UK and the average country but seems to be slowing down. United Kingdom has a very similar growth rate as the average. By looking at the case fatality rates in table 11 we see that Germany has a much lower fatality rate. This seems to indicate that growth rate of cases and fatality rate are not related at least for these countries. A possible reason is that Germany might test more people even though they dont have serious symptoms. By having less restrictions on testing the more cases you have but many of the cases end up being not serious. This could mean a lower fatality rate. 
+```{r,include = FALSE}
+#Aggregate data to get average country observed values. 
+plotDataDaily <- aggregate(covidData2$Confirmed, by=list(Day=covidData2$Day), FUN=mean) 
+```
+
+
+```{r,include = FALSE}
+#Cleaning and stuff to prepare plot
+plotDataDaily$Confirmed <- plotDataDaily$x
+plotDataDaily$Country <- "Average"
+plotDataDaily <- select(plotDataDaily, -x)
+```
+
+
+```{r,include = FALSE}
+#Select the countries we want to plot on
+comparisonData <- filter(covidData2, Country =="Germany"|Country =="United Kingdom")
+```
+
+```{r,include = FALSE}
+#Stack datasets together use that dataset to plot average vs uk vs germany
+plotComparison <- bind_rows(comparisonData,plotDataDaily)
+```
+
+
+```{r, fig.cap = "Comparison of observed trajectories"}
+ggplot(plotComparison, aes(x=Day, y=Confirmed, col = Country)) +
+  geom_line()+
+  geom_point()+ ylab("Number of cases")
+```
+
+```{r, include = FALSE}
+#Compare fatality of germany and uk table shown below
+fatalityCompare <- covidData1
+fatalityCompare$fatalityRate <- fatalityCompare$Deaths/fatalityCompare$Confirmed
+fatalityCompare <-select(fatalityCompare, Country, fatalityRate) %>%
+  filter(Country =="Germany" | Country == "United Kingdom" ) 
+```
+
+```{r, fig.caption = "Fatality Rate Comparison"}
+kable(fatalityCompare, caption = "Fatality rate of UK and Germany") %>% kable_styling(latex_options ="HOLD_position")
+```
+
+
+```{r,include = FALSE}
+# FIt mixed model
+mixedModel <- lme4::glmer(Confirmed ~ Day + (Day | Country), covidData2, family = poisson) 
+summary(mixedModel)
+```
+
+This model has day as a single predictor but allows each country and intercept to have its own intercept and slope. We use a AR(1) within group error structures since present values for cases include past values. We use a poisson model since we are modelling counts of confirmed cases. We have population average parameters and country specific parameters. The population average parameters show the expected amount of confirmed cases by day for the average country. From table 12 the results of the model can be seen. The link function is log since it is a poisson model so the average country has a baseline number of cases as 566 and each one day increase mulitplies the cases by 1.13. The country specific paramaters seen in table 13 show the difference in the coefficent by day and intercept.So for example for Australia the difference in intercept is -0.41 and -0.015 for day. That means the coefficients or australia is 5.93 for the intercept and 0.11 for the slope. 
+
+
+```{r,include = FALSE}
+#hardcode summary table
+mixedModelTable <- data.frame("Covariate" = c("Intecept","Day"), "Estimate" = c(6.34,0.12),"p-value" = c(0.00,0.00))
+```
+
+
+
+```{r}
+#Could not find a working package for summary table for mixed models, hardcoded
+kable(mixedModelTable, caption = "Results from slope and intercept model")%>% kable_styling(latex_options = "HOLD_position") %>% footnote(alphabet = c("Variance for intercept = 0.82", "Variance for slope = 0.001, Correlation of fixed effects = -0.508"))
+```
+
+```{r,include = FALSE}
+#Country specific parameters
+(countryPar<- ranef(mixedModel))
+```
+
+```{r}
+#table for markdown
+kable(countryPar$Country, caption = "Country-Specific coefficients for slope and intercept model") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+To get a better view of the country specific coefficients we plot the slopes in a bar chart below. The three biggest deviations are for South Korea, Russia and Turkey. Those countries are analysed further by plotting the slopes for those countries and compare to the average country fit. It can be seen in figure 14 that turkey has the biggest growth rate while south korea has the smallest growth rate of these countries. Comparing to the actual observations it seems similar to them but hard to see since we only have limited observations for turkey and russia. We make thea axis smaller to see the comparison better. Comparing figure 15 of fitted values and figure 16 of actual values the fits seem reasonably close to the actual values.
+```{r,include = FALSE}
+#Get the slopes and clean the data plus sort
+slopes<- ranef(mixedModel)$Country
+slopes$Country <- rownames(slopes) 
+slopes <- arrange(slopes,Day)
+```
+
+
+```{r, fig.cap = "Bar chart for slope and intercept model"}
+#plot slopes with abbreviated country names and rotate labels on axis to make plot clear
+ggplot(slopes, aes(x=reorder(Country,Day), y=Day)) + 
+  geom_bar(stat="identity",fill = "green4") + scale_x_discrete(labels = countrycode(slopes$Country,origin = 'country.name', destination = 'iso3c'))+xlab("Countries")+ ylab("Slope") + theme(axis.text.x=element_text(angle=90,margin = margin(1, unit = "cm"),vjust =1))
+```
+
+
+```{r,include = FALSE}
+#Make dataset to get plot of true values for the three countries
+actualPlot<- filter(covidData2, Country =="Korea, South"|Country =="Russia"|Country =="Turkey")
+#Fix plot problems since south korea formattes as korea, south
+slopes[1,3] <- "South Korea"
+
+```
+
+```{r, fig.cap = "Fitted trajectories for slope and intercept model"}
+#use sjPlot plot_model to plot fitted values for the countries
+sjPlot::plot_model(mixedModel, type = "pred",  terms =c("Day","Country [South Korea,Russia,Turkey]"), pred.type = "re")
+```
+
+
+
+```{r,fig.cap = "Fitted trajectories for slope and intercept model, tighter axis"}
+#Adjust axis to get clearer picture
+sjPlot::plot_model(mixedModel, type = "pred",  terms =c("Day[0:20]","Country [South Korea,Russia,Turkey]"), pred.type = "re")
+
+```
+
+
+```{r, fig.cap = "Observed trajectories"}
+#Plot observed values for countries to compare
+ggplot(actualPlot, aes(x=Day, y=Confirmed, col=Country)) +
+  geom_line()+
+  geom_point() + scale_color_manual(values = c("Korea, South" = "red", "Russia" = "Blue", "Turkey" = "green4"))+ ylab("Number of cases")
+```
+
+```{r, fig.cap = "Model for average country"}
+# average country fit plot
+sjPlot::plot_model(mixedModel, type = "pred",  pred.type = "re")
+
+```
+
+```{r, fig.cap = "Observed values for average country"}
+#averag observed values plot, plotDatadaily is a previoslu aggregated dataset by day to get observed values of average country by day.
+ggplot(plotDataDaily, aes(x=Day, y=Confirmed)) +
+  geom_line()+
+  geom_point()+ ylab("Number of cases")
+```
+
+Figure 17 and 18 show average country fit and average country actual values. By comparing figure 14 and figure 17 it can be seen that Turkey and Russia have a higher growth rate than the average. Hard to see from the plot for South Korea but looking at the country specific parameters in table 13 it can be seen that South Korea has a lower growth rate than the average. Comparing figure 17 and 18 it can be seen that fittend and actual values start at a similar trajectory but the actual values go down while the fitted values are always rising.
+
+
+The last model that is fitted has a common intercept and different slopes for each country. Results in table 14 indicate that the intercept is slightly larger than in the previous model while the slopes are slightly smaller. The country specific slopes can be seen in table 15. We plot the same plots as for the previous model identifying the three countries that deviate the most. This time they are Peru, Turkey and USA as seen in figure 19. They seem to follow a similar trajectory as the observed values with Turkey with the highest growth rate and Peru the smallest. This can be seen by comparing figure 21 and figure 22.
+Comparing figure 23 and 20 we see that Turkey and USA have a much higher growth rate than the average country but hard to tell for Peru because of the range of the y-axis. Comparing the plots for the average country we get similar results as in the previous model. The fitted values are always rising while the observed values go down after some time.
+
+```{r,include = FALSE}
+# common intercept model
+mixedModel2 <- lme4::glmer(Confirmed ~ Day + (0+Day | Country), covidData2, family = poisson) 
+
+
+```
+
+```{r, include = FALSE}
+#table for markdown
+mixedModelTable2 <- data.frame("Covariate" = c("Intecept","Day"), "  Estimate" = c(7.15,0.81)," p-value" = c(0.00,0.00))
+```
+
+
+```{r}
+
+kable(mixedModelTable2, caption = "Results form common intercept model")%>% kable_styling(latex_options = "HOLD_position") %>% footnote(alphabet = c("Random effect variance = 0.0015", "Correaltion of fixed effects = -0.007"))
+```
+
+```{r,include = FALSE}
+#Country specific parameters
+countryPar2 <- ranef(mixedModel2)
+```
+
+
+```{r}
+#table for markdown
+kable(countryPar2$Country, caption = "Country-Specific coefficients for common intercept model") %>% kable_styling(latex_options = "HOLD_position")
+
+```
+
+
+
+```{r, include = FALSE}
+#get slopes and clean/sort
+slopes2<- ranef(mixedModel2)$Country
+slopes2$Country <- rownames(slopes2) 
+slopes2 <- arrange(slopes2,Day)
+```
+
+
+
+```{r, fig.cap = "Bar charts for common intercept model"}
+#Plot bar chart for slopes by countries
+ggplot(slopes2, aes(x=reorder(Country, Day), y=Day)) + 
+  geom_bar(stat="identity",fill = "green4") + scale_x_discrete(labels = countrycode(slopes2$Country,origin = 'country.name', destination = 'iso3c'))+xlab("Countries")+ ylab("Slope") +  theme(axis.text.x=element_text(angle=90,margin = margin(1, unit = "cm"),vjust =1))
+
+```
+
+
+```{r,include = FALSE}
+#Filter data again to prepare for plot
+actualPlot2<- filter(covidData2, Country =="US"|Country =="Peru"|Country =="Turkey")
+```
+
+
+
+```{r, fig.cap = "Trajectory plots for common intercept model"}
+#Plot fitted values
+myplot <- sjPlot::plot_model(mixedModel2, type = "pred",  terms =c("Day","Country[Peru,Turkey,US]"), pred.type = "re")
+
+```
+
+
+```{r, fig.cap = "Trajectory for common intercept model, tighter axis"}
+#Change range of axis
+sjPlot::plot_model(mixedModel2, type = "pred",  terms =c("Day[0:37]","Country[Peru,Turkey,US]"), pred.type = "re")
+
+```
+
+```{r, fig.cap = "Observed trajectory for countries"}
+
+ggplot(actualPlot2, aes(x=Day, y=Confirmed, col=Country)) +
+  geom_line()+
+  geom_point() + scale_color_manual(values = c("US" = "red", "Turkey" = "green4", "Peru" = "blue")) + ylab("Number of cases")
+```
+
+
+```{r, fig.cap = "Average country plot for common intercept model"}
+#Plot average country fit
+sjPlot::plot_model(mixedModel2, type = "pred",  pred.type = "re")
+
+```
+
+
+```{r,fig.cap = "Observed average country trajectory"}
+#PLot data daily is data that was aggregated befor by day so we get average observed cases by day
+ggplot(plotDataDaily, aes(x=Day, y=Confirmed)) +
+  geom_line()+
+  geom_point() + ylab("Number of cases")
+```
+
+
+By looking at the comparison between average country fitted and the observed values. It can be seen that the models dont deal well with values after the peak of the outbreak. The reason is that the models have values that continue to rise while the observed values will eventually go down after the peak. This can be seen by comparing the model fits with figure 24 of the actual observations.
