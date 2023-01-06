@@ -1,0 +1,144 @@
+body 
+{
+	margin-top: 0px;
+	margin-left: 0px;
+}
+
+#cvpage #id1_1 {position:relative; overflow: hidden;margin: 20px 0px 12px 113px;padding: 0px;border: none;width: 703px;}
+#cvpage #id1_1 {border:none;margin: 0px 0px 0px 0px;padding: 0px;border:none;width: 703px;overflow: hidden}
+#cvpage #id1_2 {border:none;margin: 105px 0px 0px 159px;padding: 0px;border:none;width: 544px;overflow: hidden;}
+
+#cvpage #p1dimg1 #p1img1 {width:590px;height:184px;}
+
+
+.ft0{
+	font: 22px 'Arial';
+	line-height: 26px;
+}
+
+.ft1{font: 16px 'Arial';
+	line-height: 18px;
+	font-weight: bold;
+	
+}
+
+.ft2{
+	font: 12px 'Arial';
+	line-height: 15px;
+	font-weight: bold;
+}
+
+.ft3{
+	font: 12px 'Arial';
+	line-height: 14px;
+}
+
+.ft4{
+	font: 12px 'Arial';
+	line-height: 1px;
+}
+.ft5{font: 8px 'Arial';
+	line-height: 10px;
+	position: relative; 
+	bottom: 3px;
+}
+
+.ft6{font: 12px 'Arial';
+	line-height: 15px;
+	position: relative; 
+	bottom: -2px;
+}
+
+.ft7{
+	font: 8px 'Calibri';
+	line-height: 10px;
+}
+
+.p0{text-align: left;
+	padding-left: 199px;
+	margin-top: 0px;
+	margin-bottom: 0px;
+}
+
+.p1{text-align: left;margin-top: 50px;margin-bottom: 0px;}
+.p2{text-align: left;margin-top: 16px;margin-bottom: 0px;}
+.p3{text-align: left;margin-top: 0px;margin-bottom: 0px;white-space: nowrap;}
+.p4{text-align: left;margin-top: 16px;margin-top: 10px;margin-bottom: 10px;}
+.p5{text-align: left;padding-left: 34px;padding-right: 113px;margin-top: 6px;margin-bottom: 0px;}
+.p6{text-align: left;padding-left: 63px;margin-top: 5px;margin-bottom: 0px;}
+
+
+
+
+
+.td0{padding: 0px;margin: 0px;width: 114px;vertical-align: bottom; height: 14px}
+.td1{padding: 0px;margin: 0px;width: 178px;vertical-align: bottom; height: 14px}
+
+.t0{width: 292px;margin-left: 42px;margin-top: 15px;font: 12px 'Arial';}
+
+.column {
+  position: relative;
+  float: left;
+  width: 45%;
+}
+#name
+{
+	margin-top: 25px;
+	margin-bottom: 25px;
+	font-size: 24px;
+}
+/* Clear floats after the columns */
+.row:after {
+  content: "";
+  display: table;
+  clear: both;
+}
+#work
+{	
+	font: 'Arial';
+	margin-bottom: 100px;
+	width: 650px;;
+}
+
+#padding
+{
+	font: 'Arial';
+    border-bottom:1.6px solid #000000;
+    padding-bottom:3px;
+	margin-right:50px;
+	margin-top: 25px;
+	width: 650px;
+}
+
+.skills 
+{
+	font: 'Arial';
+    border-bottom:1.6px solid #000000;
+    padding-bottom:3px;
+	margin-top: 25px;
+}
+#support
+{
+	margin-top: 20px;
+}
+#col1
+{
+	margin-left: 50px;
+}
+#col2
+{
+	position: relative;
+	margin-left:50px; !important;
+}
+#report
+{
+	margin-left:10px;
+}
+#skilltext
+{
+	font-size: 15px;
+}
+body {
+  background-color: lightgoldenrodyellow;
+}
+<meta name="viewport" content="width=device-width, initial-scale=0.9">
